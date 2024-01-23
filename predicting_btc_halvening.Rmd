@@ -1,0 +1,151 @@
+---
+title: "Predicting the BTC halving"
+author: "Charliemarketplace"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    css: "styles.css"
+    includes:
+      in_header: header.html
+    code_folding: hide
+    toc: true
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r, message=FALSE, warning=FALSE}
+library(reactable)
+library(dplyr)
+library(plotly)
+```
+
+# Concept 
+
+The Bitcoin halving occurs every 210,000 blocks. A Bitcoin block occurs *roughly* 
+every 10 minutes, but can vary based on hashrate and difficulty adjustments. 
+
+Using just on chain data, can we forecast the next halving with some interval of certainty?
+
+# Data 
+
+```{r}
+btc <- read.csv("btc_rewards_history.csv")
+```
+
+Looking at all blocks from Block 1 (Genesis, Jan 9th 2009) to Block 826,908 (The last block 
+on Jan 22 2024 23:58:49 UTC), including the block reward and the transaction fees received by the miner of the block.
+
+
+```{r}
+reactable(
+  btc[1:10, c("BLOCK_TIMESTAMP", "BLOCK_NUMBER", "BLOCK_REWARD", "FEES")]
+)
+```
+
+We can identify halvings as 50% cuts to the block reward relative to the previous block reward (lagged block reward), which we know occur every 
+210,000 blocks. Note, blocks 501,726 and 526,591 were aberrant. Technically miners 
+can forget to claim their reward (extremely rare) or not claim the full amount (a few satoshis leftover is not unusual).
+
+```{r}
+
+btc <- btc %>% mutate(
+  halving = ifelse(BLOCK_REWARD < 0.6*LAGGED_BLOCK_REWARD, TRUE, FALSE)
+)
+
+# Go up to the full day of Jan 22nd. This report is being written as of Jan 23.
+btc <- btc[1:826908, ]
+
+# go ahead and label genesis as a halving for simplicity 
+btc[1, "halving"] <- TRUE
+
+# two aberrant blocks where the miner incorrectly claimed the amount they could have
+btc[btc$BLOCK_NUMBER %in% c('501726', '526591'), "halving"] <- FALSE
+
+reactable(
+  btc[btc$halving, c("BLOCK_TIMESTAMP", "BLOCK_NUMBER", "BLOCK_REWARD")]
+)
+
+```
+
+# Methods 
+
+Knowing the block number of the next halving (840,000), there are 13,092 
+blocks left between Jan 23rd, 2024 12:00AM UTC and the halving.
+
+Aggregating Bitcoin block production to the daily level we can calculate the 
+number of blocks per day, the transaction fees earned in that day, and whether the 
+day is a halving.
+
+```{r}
+btc_daily <- btc %>% mutate(day_ = as.Date(btc$BLOCK_TIMESTAMP)) %>% 
+  group_by(day_) %>% summarise(
+    n_blocks = n(), 
+    total_fees = sum(FEES),
+    halving_day = (mean(halving) > 0)
+  ) %>% 
+  mutate(
+     cumulative_blocks = cumsum(n_blocks)
+  )
+
+# When the cumulative blocks cycles past a mod 2016, difficulty was adjusted
+btc_daily$difficulty_adjusted <- c(FALSE, diff(btc_daily$cumulative_blocks %% 2016) < 0)
+
+reactable(
+  tail(btc_daily)
+)
+```
+
+## Are Blocks Autoregressive?
+
+Every 2,016 blocks (~2 weeks) the difficulty adjustment kicks in. If the previous 
+2,016 blocks were produced faster than expected, difficulty goes up to decrease production. If the blocks were produced slower than expected, difficulty falls to increase production.
+
+```{r}
+
+btc_daily_365 <- tail(btc_daily, 365)
+
+p <- plot_ly() %>% 
+    add_trace(data = btc_daily_365, 
+              x = ~day_, y = ~n_blocks, type = 'scatter', mode = 'markers+lines')
+
+for(i in which(btc_daily_365$difficulty_adjusted)){
+  p <- p %>% add_lines(x = btc_daily_365$day_[i], y = c(100, 200), 
+              line = list(color = 'lightgray', width = 1, type = 'dash'))
+}  
+    
+p %>% 
+  layout(
+    title = list(text = "Daily # Blocks over Last 365 Days\n Difficulty Adjustments noted in gray",
+                 y = 0.95),
+    xaxis = list(title = "Date", showgrid = FALSE),
+    yaxis = list(title = "# Blocks Created", showgrid = FALSE),
+    showlegend = FALSE,
+    grid = FALSE
+  )
+
+```
+
+## Are more Blocks made when Fees are higher?
+
+It's rational for more miners to participate in block production when 
+transaction fees are high, but given both the difficulty adjustment and how dominant 
+block rewards are for miner revenue relative to transaction fees, there is essentially 
+little to no correlation between the two over the last 365 days.
+
+```{r}
+plot_ly() %>% 
+    add_trace(data = tail(btc_daily, 365), 
+              x = ~total_fees, y = ~n_blocks, type = 'scatter', mode = 'markers') %>% 
+  layout(
+    title = list(text = "Blocks Produced Relative to Fees over Last 365 Days", y = 0.975),
+    xaxis = list(title = "Fees Paid"),
+    yaxis = list(title = "# Blocks Created")
+  )
+
+```
+
+# Forecasts 
+
+
