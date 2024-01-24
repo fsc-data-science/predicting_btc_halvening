@@ -13,12 +13,15 @@ output:
 editor_options: 
   chunk_output_type: console
 ---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
 
-
-```{r, message=FALSE, warning=FALSE}
+```{r}
 library(reactable)
 library(dplyr)
 library(plotly)
+library(forecast)
 ```
 
 # Concept 
@@ -86,11 +89,11 @@ btc_daily <- btc %>% mutate(day_ = as.Date(btc$BLOCK_TIMESTAMP)) %>%
     halving_day = (mean(halving) > 0)
   ) %>% 
   mutate(
-     cumulative_blocks = cumsum(n_blocks)
+     cumulative = cumsum(n_blocks)
   )
 
 # When the cumulative blocks cycles past a mod 2016, difficulty was adjusted
-btc_daily$difficulty_adjusted <- c(FALSE, diff(btc_daily$cumulative_blocks %% 2016) < 0)
+btc_daily$diff_adjusted <- c(FALSE, diff(btc_daily$cumulative %% 2016) < 0)
 
 reactable(
   tail(btc_daily)
@@ -110,7 +113,7 @@ p <- plot_ly() %>%
     add_trace(data = btc_daily_365, 
               x = ~day_, y = ~n_blocks, type = 'scatter', mode = 'markers+lines')
 
-for(i in which(btc_daily_365$difficulty_adjusted)){
+for(i in which(btc_daily_365$diff_adjusted)){
   p <- p %>% add_lines(x = btc_daily_365$day_[i], y = c(100, 200), 
               line = list(color = 'lightgray', width = 1, type = 'dash'))
 }  
@@ -121,6 +124,38 @@ p %>%
                  y = 0.95),
     xaxis = list(title = "Date", showgrid = FALSE),
     yaxis = list(title = "# Blocks Created", showgrid = FALSE),
+    showlegend = FALSE,
+    grid = FALSE
+  )
+
+```
+
+Over the last 365 we see how in between difficulty adjustment periods, more blocks on one 
+day tend to correlate with more blocks the next day. This makes sense, as more miners 
+can squeeze blocks faster than the expected 2 weeks. 
+
+```{r}
+
+lm_ar1 <- lm(btc_daily_365$n_blocks[2:365] ~ btc_daily_365$n_blocks[1:364])
+
+plot_ly() %>% add_trace(
+  data = btc_daily_365, x = ~n_blocks[1:364], y = ~n_blocks[2:365], 
+  type = 'scatter', mode = 'markers',
+  name = 'N vs N+1'
+) %>% 
+  add_trace(
+    x = ~n_blocks[1:364], 
+    y = ~fitted(lm_ar1),
+    type = 'scatter',
+    mode = 'lines',
+    line = list(color = 'pink', dash = 'dash'),
+    name = 'LM Fitted'
+  ) %>% 
+  layout(
+    title = list(text = "More blocks predict even more blocks the next day",
+                 y = 0.95),
+    xaxis = list(title = "# of Blocks on Day N", showgrid = FALSE),
+    yaxis = list(title = "# of Blocks on Day N+1", showgrid = FALSE),
     showlegend = FALSE,
     grid = FALSE
   )
@@ -148,4 +183,80 @@ plot_ly() %>%
 
 # Forecasts 
 
+The difficulty adjustment works, even knowing the more blocks in one day predict 
+more blocks the next day, the adjustment slashes (or skyrockets) production to keep a solid average of 
+~150 blocks per day. (147 blocks per day over last 365 days).
 
+A partial autocorrelation of the daily number of blocks over the last 365 days
+shows both relationships. The 1 day lag correlation is +0.15 and 15 day lag correction -0.10.
+
+```{r}
+pacf(btc_daily_365$n_blocks)
+```
+
+## Basic Estimate 
+
+With an average of 147 blocks per day over the last 365 days, and 13,092 blocks between 
+Jan 23, 2024 12AM and the Halving, the estimated date could be as simple as: 
+
+`13,092 / 147 = 89 days`
+
+Which would estimate April 21st 2024.
+
+```{r}
+as.Date('2024-01-23') + 89
+```
+
+## ARIMA simulation
+
+Alternatively, generating an ARIMA model using the known partial autocorrelations, 
+we can simulate the next 100 days, 500 times and get the most common date ranges.
+
+```{r}
+
+ar_15 <- arima(btc_daily_365$n_blocks, order = c(15,0,0))
+
+simulations <- data.frame()
+p <- plot_ly(type = 'scatter', mode = 'lines')
+
+for(i in 1:500){
+run = rep(i, 100)
+dates = seq.Date(from = as.Date('2024-01-23'), to = as.Date('2024-05-01'), by = 1)
+results = simulate(ar_15, nsim = 100, seed = i)
+temp_ = data.frame( run = run, dates = dates, pred = round(as.numeric(results)))
+temp_$cumulative = cumsum(temp_$pred)
+temp_$halving = 0
+# just choosing 200 as a flag in case I want to use as the y value in a chart later
+temp_$halving[which(temp_$cumulative >= 13092)[1]] <- 200
+
+simulations = rbind.data.frame(simulations, temp_)
+
+p <- p %>% add_trace(data = temp_, x = ~dates, y = ~pred, type = 'scatter', 
+                     mode = 'lines',
+                     name = paste0("Run #: ", i))
+}
+
+p %>% layout(
+  showlegend = FALSE,
+  xaxis = list(title = 'Forecast Date'),
+  yaxis = list(title = '# Blocks Created in Day'), 
+  title = list(text = '500 Simulations of Bitcoin Block Production', y = 0.975)
+)
+  
+```
+
+Doing these 500 simulations, trained on the last 365 days of Bitcoin block data, we can 
+identify the most common Halving date as April 20th, 2024. Indicating the basic forecast 
+previously made may have not accounted for difficulty adjustment the way this model does. 
+
+```{r}
+estimated_dates <- simulations %>% group_by(dates) %>% summarise(
+  n = sum(halving == 200)
+) %>% filter(n != 0)
+
+plot_ly(estimated_dates, x = ~dates, y = ~n, type = 'bar') %>% layout(
+  title = list(text = "Halving Day Frequency across 500 simulations", y = 0.975),
+  xaxis = list(title = "Estimated Halving Date"),
+  yaxis = list(title = "Simulation Frequency"))
+
+```

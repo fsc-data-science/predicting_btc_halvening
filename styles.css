@@ -8,7 +8,7 @@ body {
   background-size: 300px 117px;
   padding-left: 10%;
   padding-right: 10%;
-  color: #C4CDD5;
+  color: #F5F5F5;
     font-size: 18px;
   font-weight: 400;
   font-family: Inter;
@@ -17,13 +17,13 @@ body {
 
 hr {
   width: 85%;
-  color: #C4CDD5;
+  color: #F5F5F5;
 }
 
 .tocify {
   background-color: #10151A;
     font-size: 14px;  
-  color: #C4CDD5;
+  color: #F5F5F5;
     border: 0;
 }
 
@@ -75,7 +75,7 @@ h3 {
 
 .ReactTable {
   background-color: #171e25;
-    color: #C4CDD5;
+    color: #F5F5F5;
     border: none;
   font-family: Roboto Mono;
   font-size: 0.8em;
@@ -96,8 +96,8 @@ h3 {
   margin: 0;
   background: #171e25;
     opacity: 0.5;
-  border-bottom: 1px solid #C4CDD5;
-  border-top: 1px solid #C4CDD5;
+  border-bottom: 1px solid #F5F5F5;
+  border-top: 1px solid #F5F5F5;
 }
 
 .btn {
