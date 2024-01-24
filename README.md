@@ -14,7 +14,7 @@ From there you can open `predicting_btc_halvening.Rmd` and run.
 
 Doing 500 simulations of bitcoin blocks made each day (trained over the 365 days before 2024-01-23), the most likely date is April 20th.
 
-[![500 Simulations of Bitcoin Block Production](500_simulations.png)]
+![500 Simulations of Bitcoin Block Production](500_simulations.png)
 
 90.6% of the simulations had the Halving on April 19th (3rd), 20th (1st), or 21st (2nd).
 
