@@ -24,6 +24,11 @@ library(plotly)
 library(forecast)
 ```
 
+# Reproducibility
+
+All data and code is open source. Code chunks can be viewed via clicking the `Code` button(s) on the right.
+For full reproducibility, the repo is available here on Flipside Crypto's [Data Science github](https://github.com/fsc-data-science/predicting_btc_halvening).
+
 # Concept 
 
 The Bitcoin halving occurs every 210,000 blocks. A Bitcoin block occurs *roughly* 
